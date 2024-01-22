@@ -38,7 +38,7 @@ CLI-утилита для копирования страниц из одног�
 Пакет лежит `nexus.cyrm.tech` в репозитории `pypi-cyrm-proxy`, установить можно следующей командой:
 
 ```bash
-pip install -i https://nexus.cyrm.tech/repository/pypi-cyrm-proxy/ confluence-sync
+pip install -i https://nexus.cyrm.tech/repository/pypi-cyrm-proxy/simple confluence-sync
 ```
 
 Использовать утилиту можно следующей командой:
@@ -66,7 +66,7 @@ python -m confluence_sync -h
 3. Добавить репозиторий `pypi-cyrm` в poetry
 
     ```bash
-    poetry config repositories.cyrm https://nexus.cyrm.tech/repository/pypi-cyrm/simple/
+    poetry config repositories.cyrm https://nexus.cyrm.tech/repository/pypi-cyrm/
     ```
 
 4. Опубликовать пакет
@@ -82,3 +82,4 @@ python -m confluence_sync -h
 - [ ] Добавить grace shutdown
 - [ ] Проверить запуск синхронизации страницы несколько раз с одним экземпляром класса
 - [ ] Выделить в разные сущности проверку внешних ссылок и замену внутренних
+- [ ] Добавить CI/CD для публикации пакета по тегу
