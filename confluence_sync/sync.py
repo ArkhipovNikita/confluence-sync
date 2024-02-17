@@ -256,6 +256,8 @@ class _ConfluenceSynchronizerSession(observer.Observable):
         download_url = src_attachment['_links']['download']
         content = self._src_cli.get(download_url, not_json_response=True)
 
+        # Без блокировки почему-то возникает 500 ошибка,
+        # в логах confluence отображается 403
         with self._lock:
             self._dst_cli.attach_content(
                 content,
