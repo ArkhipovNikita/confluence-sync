@@ -1,11 +1,13 @@
 import dataclasses as dc
 import datetime as dt
+import itertools as it
 import logging
 import queue
 import threading
+import typing as tp
 from concurrent import futures
 
-from confluence_sync import fmt, observer
+from confluence_sync import fmt, observer, context
 from confluence_sync.confluence import CustomConfluence, StrDict
 
 
@@ -17,55 +19,58 @@ class ConfluenceConfig:
     token: str | None = None
 
 
-class ConfluenceSynchronizer(observer.Observable):
-    """Синхронизатор страниц конфлюенса."""
-
+class _ConfluenceSynchronizerSession(observer.Observable):
     _datetime_parser = dt.datetime.fromisoformat
     _logger = logging.getLogger('confluence-sync')
 
-    def __init__(self, source_conf: ConfluenceConfig, dest_conf: ConfluenceConfig) -> None:
+    def __init__(
+        self,
+        *,
+        executor: futures.ThreadPoolExecutor,
+        src_cli: CustomConfluence,
+        dst_cli: CustomConfluence,
+        src_space: str,
+        src_title: str,
+        dst_space: str,
+        dst_title: str | None = None,
+        replace_title_substr: tuple[str, str] | None = None,
+        start_title_with: str | None = None,
+    ):
         super().__init__()
 
-        self._source_conf = source_conf
-        self._dest_conf = dest_conf
-
-        self._source_cli = None
-        self._dest_cli = None
-
-        self._total_page_count = None
-        self._synced_paged_count = None
-
-        self._opened = False
-
-        self._executor = futures.ThreadPoolExecutor()
+        # THREADING
+        self._executor = executor
         self._lock = threading.Lock()
         self._futures = []
 
-    def __enter__(self) -> 'ConfluenceSynchronizer':
-        self._ensure_closed()
+        # CLIENTS
+        self._src_cli = src_cli
+        self._dst_cli = dst_cli
 
-        self._source_cli = CustomConfluence(**dc.asdict(self._source_conf))
-        self._dest_cli = CustomConfluence(**dc.asdict(self._dest_conf))
-        self._executor = self._executor.__enter__()
+        # PAGES
+        self._src_page = self._src_cli.get_page_by_title(src_space, src_title, expand='body.storage')
+        self._dst_page = self._get_dst_page(dst_space, dst_title)
 
-        self._opened = True
+        # PAGE HIERARCHY CONTEXT
+        descendant_pages = self._src_cli.traverse_descendant_pages(src_space, self._src_page['id'])
+        self._page_hierarchy_context = context.PageHierarchyContext(self._src_page, descendant_pages)
 
-        return self
+        # FORMATTERS
+        self._title_formatter = fmt.title_formatter(replace_title_substr, start_title_with)
 
-    def __exit__(self, *args) -> None:
-        self._ensure_opened()
+        out_hierarchy_link_checker = fmt.OutHierarchyPageLinkChecker(self._page_hierarchy_context)
+        page_title_formatter = fmt.PageTittleFormatter(self._title_formatter, self._page_hierarchy_context)
+        self._inc_drawio_formatter = fmt.IncDrawIOFormatter(self._src_cli, self._dst_cli, self._page_hierarchy_context)
 
-        self._executor.__exit__(*args)
-        self._source_cli.close()
-        self._dest_cli.close()
+        self._page_formatters = [
+            out_hierarchy_link_checker,
+            page_title_formatter,
+            self._inc_drawio_formatter
+        ]
 
-    def _ensure_opened(self) -> None:
-        if not self._opened:
-            raise ValueError('ConfluenceSynchronizer must be entered')
-
-    def _ensure_closed(self) -> None:
-        if self._opened:
-            raise ValueError('ConfluenceSynchronizer must be closed')
+        # STATS
+        self._total_page_count = 0
+        self._synced_paged_count = 0
 
     @property
     def total_page_count(self) -> int:
@@ -74,24 +79,6 @@ class ConfluenceSynchronizer(observer.Observable):
     @property
     def synced_page_count(self) -> int:
         return self._synced_paged_count
-
-    def _inc_synced_page_count(self) -> None:
-        """Инкрементирование количества синхронизированных страниц."""
-        with self._lock:
-            self._synced_paged_count += 1
-
-        self.notify()
-
-    def _init_stats(self, total_page_count: int) -> None:
-        """Установка начальных значений статистики."""
-        self._total_page_count = total_page_count
-        self._synced_paged_count = 0
-        self.notify()
-
-    def _clean_stats(self) -> None:
-        """Очистка значений статистики."""
-        self._total_page_count = 0
-        self._synced_paged_count = 0
 
     def _run_task(self, fn, *args, **kwargs) -> None:
         ft = self._executor.submit(fn, *args, **kwargs)
@@ -107,205 +94,289 @@ class ConfluenceSynchronizer(observer.Observable):
 
         self._futures.clear()
 
-    def sync_page_hierarchy(
-        self,
-        source_space: str,
-        source_title: str,
-        dest_space: str,
-        dest_title: str | None = None,
-        *,
-        replace_title_substr: tuple[str, str] | None = None,
-        start_title_with: str | None = None,
-    ) -> None:
-        """Синхронизация всей иерархии страницы.
-
-        :param source_space: спейс страницы источника
-        :param source_title: название страницы источника
-        :param dest_space: спейс страницы назначения
-        :param dest_title: название страницы назначения
-        :param replace_title_substr: данные для замены подтстроки заголовка
-        :param start_title_with: добавить префикс к заголовку
-        """
-        self._ensure_opened()
-
-        if dest_title:
-            dest_page = self._dest_cli.get_page_by_title(dest_space, dest_title)
+    def _get_dst_page(self, dst_space: str, dst_title: str | None = None) -> StrDict:
+        if dst_title:
+            return self._dst_cli.get_page_by_title(dst_space, dst_title)
         else:
-            dest_space_data = self._dest_cli.get_space(dest_space)
-            dest_page = self._dest_cli.get_page_by_id(dest_space_data['homepage']['id'])
+            dst_space_data = self._dst_cli.get_space(dst_space)
+            return self._dst_cli.get_page_by_id(dst_space_data['homepage']['id'])
 
-        source_page = self._source_cli.get_page_by_title(source_space, source_title, expand='body.storage')
+    def _init_stats(self, total_page_count: int) -> None:
+        """Установка начальных значений статистики."""
+        self._total_page_count = total_page_count
+        self._synced_paged_count = 0
+        self.notify()
 
-        descendant_pages = self._source_cli.traverse_descendant_pages(source_space, source_page['id'])
-        descendant_page_titles = {page['title'] for page in descendant_pages}
+    def _inc_synced_page_count(self, n: int = 1) -> None:
+        """Инкрементирование количества синхронизированных страниц."""
+        with self._lock:
+            self._synced_paged_count += n
 
-        self._init_stats(len(descendant_page_titles) + 1)
+        self.notify()
 
+    def run(self) -> None:
+        self._init_stats(self._page_hierarchy_context.count)
+        self._sync_hierarchy(self._src_page, self._dst_page)
+        self._sync_inc_drawio()
+
+    def _sync_hierarchy(self, src_page: StrDict, dst_page: StrDict) -> None:
         pages_to_sync = queue.SimpleQueue()
+
         # тапл с итерируемым объектом исходных страниц
         # и идентификатором родительской страницы назначения
-        pages_to_sync.put(((source_page,), dest_page['id']))
+        pages_to_sync.put(((src_page,), dst_page['id']))
 
-        def _task(source_page_: StrDict, dest_parent_page_id_: str) -> None:
-            dest_page_id = self._sync_page(
-                source_page_,
-                dest_space,
-                dest_parent_page_id_,
-                descendant_page_titles,
-                replace_title_substr,
-                start_title_with,
+        def _task(_src_page: StrDict, _dst_parent_page_id: str) -> None:
+            page_context = self._page_hierarchy_context.search_by_id(_src_page['id'])
+
+            dst_page_id = self._sync_page(
+                page_context,
+                _src_page,
+                _dst_parent_page_id,
             )
 
-            source_child_pages = self._source_cli.get_page_child_by_type(source_page_['id'], expand='body.storage')
-            pages_to_sync.put((source_child_pages, dest_page_id))
+            src_child_pages = self._src_cli.get_page_child_by_type(_src_page['id'], expand='body.storage')
+            pages_to_sync.put((src_child_pages, dst_page_id))
 
         while not pages_to_sync.empty():
-            source_pages, dest_parent_page_id = pages_to_sync.get()
+            src_pages, dst_parent_page_id = pages_to_sync.get()
 
-            for source_page in source_pages:
-                self._run_task(_task, source_page, dest_parent_page_id)
+            for src_page in src_pages:
+                self._run_task(_task, src_page, dst_parent_page_id)
 
             self._wait_tasks()
 
-        self._clean_stats()
-
     def _sync_page(
         self,
-        source_page: StrDict,
-        dest_space: str,
-        dest_parent_page_id: str,
-        descendant_page_titles: set[str],
-        replace_title_substr: str | None = None,
-        start_title_with: str | None = None,
+        page_context: context.PageContext,
+        src_page: StrDict,
+        dst_parent_page_id: str,
     ) -> str:
-        """Синхронизация страницы.
-
-        :param source_page: данные страницы источника
-        :param dest_space: спейс страницы назначения
-        :param dest_parent_page_id: идентификатор родительской страницы назначения
-        :param descendant_page_titles: множество названий страниц всех потомков
-        :param replace_title_substr: данные для замены подтстроки заголовка
-        :param start_title_with: добавить префикс к заголовку
-        :return: идентификатор страницы назначения
-        """
-        dest_page_id = self._sync_body(
-            source_page,
-            dest_parent_page_id,
-            descendant_page_titles,
-            replace_title_substr,
-            start_title_with,
+        """Синхронизация страницы."""
+        dst_page_id, dst_page_title = self._sync_body(
+            page_context,
+            src_page,
+            dst_parent_page_id,
         )
 
-        self._sync_attachments(source_page, dest_space, dest_page_id)
+        self._sync_attachments(page_context.src_id, dst_page_id, dst_page_title)
 
-        self._logger.info('Page synced, "%s"', source_page['title'])
+        self._logger.info('Page synced, "%s"', src_page['title'])
         self._inc_synced_page_count()
 
-        return dest_page_id
+        return dst_page_id
 
     def _sync_body(
         self,
-        source_page: StrDict,
-        dest_page_parent_id: str,
-        descendant_page_titles: set[str],
-        replace_title_substr: tuple[str, str] | None = None,
-        start_title_with: str | None = None,
-    ) -> str:
-        """Синхронизация текста страницы.
+        page_context: context.PageContext,
+        src_page: StrDict,
+        dst_page_parent_id: str,
+    ) -> tuple[str, str]:
+        """Синхронизация текста страницы."""
+        old_title = page_context.src_title
+        old_body = src_page['body']['storage']['value']
 
-        :param source_page: данные страницы источника
-        :param dest_page_parent_id: идентификатор родительской страницы назначения
-        :param descendant_page_titles: множество названий страниц всех потомков
-        :param replace_title_substr: данные для замены подтстроки заголовка
-        :param start_title_with: добавить префикс к заголовку
-        :return: идентификатор страницы назначения
-        """
-        formatter = fmt.text_formatter(replace_title_substr, start_title_with)
+        new_title = self._title_formatter(old_title)
+        new_body = fmt.format_page(page_context, old_body, self._page_formatters)
 
-        old_title = source_page['title']
-        new_title = formatter(old_title) if formatter else old_title
-
-        old_body = source_page['body']['storage']['value']
-        new_body = fmt.page_ri(old_title, old_body, descendant_page_titles, formatter)
-
-        dest_page = self._dest_cli.update_or_create(
-            parent_id=dest_page_parent_id,
+        dst_page = self._dst_cli.update_or_create(
+            parent_id=dst_page_parent_id,
             title=new_title,
             body=new_body,
         )
 
+        page_context.dst_id = dst_page['id']
+
         self._logger.info('Page body synced, "%s"', old_title)
 
-        return dest_page['id']
+        return dst_page['id'], dst_page['title']
 
-    def _sync_attachments(self, source_page: StrDict, dest_space: str, dest_page_id: str) -> None:
-        """Синхронизация вложений страницы.
+    def _sync_attachments(self, src_page_id: str, dst_page_id: str, dst_page_title: str | None = None) -> None:
+        """Синхронизация вложений страницы."""
+        src_attachments = self._src_cli.traverse_page_attachments(
+            src_page_id,
+            expand='history.lastUpdated'
+        )
 
-        :param source_page: данные страницы источника
-        :param dest_space: спейс вложения назначения
-        :param dest_page_id: идентифкатор страницы назначения
-        """
-        source_attachments = self._source_cli.traverse_page_attachments(source_page['id'], expand='history.lastUpdated')
+        self._copy_attachments(src_attachments, dst_page_id, dst_page_title)
 
-        dest_attachments = self._dest_cli.traverse_page_attachments(dest_page_id, expand='history.lastUpdated')
-        dest_attachments_map = {attachment['title']: attachment for attachment in dest_attachments}
+    def _copy_attachments(
+        self,
+        src_attachments: tp.Iterable[StrDict],
+        dst_page_id: str,
+        dst_page_title: str | None = None
+    ) -> None:
+        """Копирование вложений в указанную страницу."""
+        dst_attachments = self._dst_cli.traverse_page_attachments(dst_page_id, expand='history.lastUpdated')
+        dst_attachments_map = {attachment['title']: attachment for attachment in dst_attachments}
 
-        for source_attachment in source_attachments:
-            dest_attachment = dest_attachments_map.get(source_attachment['title'])
-            self._sync_attachment(
-                source_page,
-                source_attachment,
-                dest_attachment,
-                dest_space,
-                dest_page_id
+        for src_attachment in src_attachments:
+            dst_attachment = dst_attachments_map.get(src_attachment['title'])
+            self._copy_attachment_only_updated(
+                src_attachment,
+                dst_attachment,
+                dst_page_id,
+                dst_page_title
             )
 
-    def _sync_attachment(
+    def _copy_attachment_only_updated(
         self,
-        source_page: StrDict,
-        source_attachment: StrDict,
-        dest_attachment: StrDict | None,
-        dest_space: str,
-        dest_page_id: str,
+        src_attachment: StrDict,
+        dst_attachment: StrDict | None,
+        dst_page_id: str,
+        dst_page_title: str | None = None,
     ) -> None:
-        """Синхронизация вложения страницы.
+        """Копирование вложения.
 
-        Вложение синхронизируется, если его не существует или было обновлено после последней синхронизации.
-
-        :param source_page: данные страницы источника
-        :param source_attachment: данные вложения источника
-        :param dest_attachment: данные вложения назначения
-        :param dest_space: спейс вложения назначения
-        :param dest_page_id: идентифкатор страницы назначения
+        Вложение копируется, если его не существует или было обновлено после последней синхронизации.
         """
-        if dest_attachment:
-            source_attachment_last_updated = self._datetime_parser(source_attachment['history']['lastUpdated']['when'])
-            dest_attachment_last_updated = self._datetime_parser(dest_attachment['history']['lastUpdated']['when'])
+        if dst_attachment:
+            src_attachment_last_updated = self._datetime_parser(src_attachment['history']['lastUpdated']['when'])
+            dst_attachment_last_updated = self._datetime_parser(dst_attachment['history']['lastUpdated']['when'])
 
-            if dest_attachment_last_updated >= source_attachment_last_updated:
+            if dst_attachment_last_updated >= src_attachment_last_updated:
                 self._logger.warning(
-                    'Attachment "%s" already synced, page: "%s"',
-                    source_attachment['title'],
-                    source_page['title'],
+                    'Attachment "%s" already copied, page: "%s"',
+                    src_attachment['title'],
+                    dst_page_title or dst_page_id
                 )
 
                 return
 
-        def _task() -> None:
-            download_url = source_attachment['_links']['download']
-            content = self._source_cli.get(download_url, not_json_response=True)
+        self._run_task(self._copy_attachment, src_attachment, dst_page_id, dst_page_title)
 
-            title = source_attachment['title']
+    def _copy_attachment(
+        self,
+        src_attachment: StrDict,
+        dst_page_id: str,
+        dst_page_title: str | None = None,
+    ) -> None:
+        title = src_attachment['title']
 
-            self._dest_cli.attach_content(
+        download_url = src_attachment['_links']['download']
+        content = self._src_cli.get(download_url, not_json_response=True)
+
+        with self._lock:
+            self._dst_cli.attach_content(
                 content,
-                space=dest_space,
-                page_id=dest_page_id,
+                page_id=dst_page_id,
                 title=title,
                 name=title,
-                comment=source_attachment['metadata'].get('comment'),
+                comment=src_attachment['metadata'].get('comment'),
             )
 
-            self._logger.info('Attachment "%s" synced, page: "%s"', title, source_page['title'])
+        self._logger.info('Attachment "%s" copied, page: "%s"', title, dst_page_title or dst_page_id)
 
-        self._run_task(_task)
+    def _sync_inc_drawio(self) -> None:
+        self._logger.info(
+            'Fixing pages with included drawio diagrams, page count: %d',
+            self._inc_drawio_formatter.delayed_pages_count
+        )
+
+        self._inc_synced_page_count(-self._inc_drawio_formatter.delayed_pages_count)
+
+        for src_page_id, body, attachments, comment in self._inc_drawio_formatter.process_delayed_pages():
+            page_context = self._page_hierarchy_context.search_by_id(src_page_id)
+
+            new_title = self._title_formatter(page_context.src_title)
+
+            self._dst_cli.update_page(
+                page_id=page_context.dst_id,
+                title=new_title,
+                body=body,
+                version_comment=comment
+            )
+
+            attachments = it.chain.from_iterable(
+                self._src_cli.get_attachment_by_names(
+                    ref_page_id,
+                    attachment_names,
+                    expand='history.lastUpdated',
+                )
+
+                for ref_page_id, attachment_names
+                in attachments.items()
+            )
+
+            self._copy_attachments(attachments, page_context.dst_id, new_title)
+            self._wait_tasks()
+
+            self._logger.info('Included drawio diagram fixed, page: "%s"', new_title)
+            self._inc_synced_page_count()
+
+
+class ConfluenceSynchronizer:
+    """Синхронизатор страниц конфлюенса."""
+
+    def __init__(self, src_conf: ConfluenceConfig, dst_conf: ConfluenceConfig) -> None:
+        super().__init__()
+
+        self._src_conf = src_conf
+        self._dst_conf = dst_conf
+
+        self._src_cli: CustomConfluence | None = None
+        self._dst_cli: CustomConfluence | None = None
+
+        self._executor = futures.ThreadPoolExecutor()
+
+        self._opened = False
+
+    def __enter__(self) -> 'ConfluenceSynchronizer':
+        self._ensure_closed()
+
+        self._src_cli = CustomConfluence(**dc.asdict(self._src_conf))
+        self._dst_cli = CustomConfluence(**dc.asdict(self._dst_conf))
+        self._executor = self._executor.__enter__()
+
+        self._opened = True
+
+        return self
+
+    def __exit__(self, *args) -> None:
+        self._ensure_opened()
+
+        self._executor.__exit__(*args)
+        self._src_cli.close()
+        self._dst_cli.close()
+
+    def _ensure_opened(self) -> None:
+        if not self._opened:
+            raise ValueError('ConfluenceSynchronizer must be entered')
+
+    def _ensure_closed(self) -> None:
+        if self._opened:
+            raise ValueError('ConfluenceSynchronizer must be closed')
+
+    def sync_page_hierarchy(
+        self,
+        src_space: str,
+        src_title: str,
+        dst_space: str,
+        dst_title: str | None = None,
+        *,
+        replace_title_substr: tuple[str, str] | None = None,
+        start_title_with: str | None = None,
+    ) -> _ConfluenceSynchronizerSession:
+        """Синхронизация всей иерархии страницы.
+
+        :param src_space: спейс страницы источника
+        :param src_title: название страницы источника
+        :param dst_space: спейс страницы назначения
+        :param dst_title: название страницы назначения
+        :param replace_title_substr: данные для замены подтстроки заголовка
+        :param start_title_with: добавить префикс к заголовку
+        :return: сессия синхронизации иерархии страниц
+        """
+        self._ensure_opened()
+
+        return _ConfluenceSynchronizerSession(
+            executor=self._executor,
+            src_cli=self._src_cli,
+            dst_cli=self._dst_cli,
+            src_space=src_space,
+            src_title=src_title,
+            dst_space=dst_space,
+            dst_title=dst_title,
+            replace_title_substr=replace_title_substr,
+            start_title_with=start_title_with,
+        )
