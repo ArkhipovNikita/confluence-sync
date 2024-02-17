@@ -16,7 +16,7 @@ class CustomConfluence(Confluence):
         expand: str | None = None,
     ) -> tp.Generator[StrDict, None, None] | list[StrDict] | StrDict:
         """Получение всех дочерних страниц текущей рекурсивно."""
-        cql = f'(space={space} and ancestor={page_id})'
+        cql = f'(space="{space}" and ancestor={page_id})'
         return self.cql_paged(cql, start, limit, expand)
 
     def cql_paged(
@@ -96,3 +96,13 @@ class CustomConfluence(Confluence):
                 )
 
             raise
+
+    # TODO: запрашивать не все вложения сразу, а только если в прошлых запросах не нашлось нужного
+    def get_attachment_by_names(
+        self,
+        page_id: str,
+        attachment_names: list[str],
+        expand: str | None = None,
+    ) -> list[StrDict]:
+        attachments = list(self.traverse_page_attachments(page_id, expand=expand))
+        return [attachment for attachment in attachments if attachment['title'] in attachment_names]

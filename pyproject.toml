@@ -1,16 +1,16 @@
 [tool.poetry]
 name = "confluence-sync"
-version = "0.1.0"
+version = "0.2.0"
 description = ""
 authors = ["Nikita Arkhipov <n.arkhipov@cyrm.ru>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.11"
-beautifulsoup4 = "^4.12.3"
 atlassian-python-api = "^3.41.8"
 tqdm = "^4.66.1"
 colorlog = "^6.8.0"
+lxml = "^5.1.0"
 
 
 [build-system]

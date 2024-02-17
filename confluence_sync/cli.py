@@ -30,12 +30,15 @@ class ConfluenceSyncedPageProgressBar(observer.Observer):
             unit='',
         )
 
-    def update(self, observable: sync.ConfluenceSynchronizer) -> None:
+    def update(self, observable: sync._ConfluenceSynchronizerSession) -> None:
         if not self._progress_bar:
             self._init_progress_bar(observable.total_page_count)
 
         delta = observable.synced_page_count - self._progress_bar.n
         self._progress_bar.update(delta)
+
+        if delta < 0:
+            self._progress_bar.refresh()
 
 
 def confluence_sync(args) -> None:
@@ -65,15 +68,17 @@ def confluence_sync(args) -> None:
     syncer = sync.ConfluenceSynchronizer(source, dest)
 
     with ConfluenceSyncedPageProgressBar() as progress_bar, syncer:
-        syncer.attach(progress_bar)
-        syncer.sync_page_hierarchy(
-            source_space=args.source_space,
-            source_title=args.source_title,
-            dest_space=args.dest_space,
-            dest_title=args.dest_title,
+        session = syncer.sync_page_hierarchy(
+            src_space=args.source_space,
+            src_title=args.source_title,
+            dst_space=args.dest_space,
+            dst_title=args.dest_title,
             replace_title_substr=tuple(args.replace_title_substr) if args.replace_title_substr else None,
             start_title_with=args.start_title_with,
         )
+
+        session.attach(progress_bar)
+        session.run()
 
 
 parser = argparse.ArgumentParser(prog='')
