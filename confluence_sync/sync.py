@@ -59,7 +59,7 @@ class _ConfluenceSynchronizerSession(observer.Observable):
         self._title_formatter = fmt.title_formatter(replace_title_substr, start_title_with)
 
         out_hierarchy_link_checker = fmt.OutHierarchyPageLinkChecker(self._page_hierarchy_context)
-        page_title_formatter = fmt.PageTittleFormatter(self._title_formatter, self._page_hierarchy_context)
+        page_title_formatter = fmt.PageTittleFormatter(self._title_formatter, dst_space, self._page_hierarchy_context)
         self._inc_drawio_formatter = fmt.IncDrawIOFormatter(self._src_cli, self._dst_cli, self._page_hierarchy_context)
 
         self._page_formatters = [

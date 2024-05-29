@@ -48,15 +48,27 @@ class OutHierarchyPageLinkChecker(TagFormatter):
 class PageTittleFormatter(TagFormatter):
     _xpath = 'ri:page'
 
-    def __init__(self, fn: _TEXT_FORMATTER, page_hierarchy_context: context.PageHierarchyContext) -> None:
+    def __init__(
+        self,
+        fn: _TEXT_FORMATTER,
+        space: str,
+        page_hierarchy_context: context.PageHierarchyContext,
+    ) -> None:
         self._fn = fn
+        self._space = space
         self._page_hierarchy_context = page_hierarchy_context
 
     def format(self, page_context: context.PageContext, el: etree._Element) -> None:
+        page_space = _parser.get_tag_attr(el, 'ri:space-key')
         page_title = _parser.get_tag_attr(el, 'ri:content-title')
 
-        if self._page_hierarchy_context.search_by_title(page_title):
-            _parser.set_tag_attr(el, 'ri:content-title', self._fn(page_title))
+        if not self._page_hierarchy_context.search_by_title(page_title):
+            return
+
+        if page_space:
+            _parser.set_tag_attr(el, 'ri:space-key', self._space)
+
+        _parser.set_tag_attr(el, 'ri:content-title', self._fn(page_title))
 
 
 class IncDrawIOFormatter(TagFormatter):
