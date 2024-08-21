@@ -10,7 +10,7 @@ from confluence_sync import context
 from confluence_sync.confluence import CustomConfluence
 from confluence_sync.parser import StorageParser
 
-_TEXT_FORMATTER = tp.Callable[[str], str]
+_TEXT_FORMATTER = tp.Callable[[str, str], str]
 
 _logger = logging.getLogger('confluence-sync')
 _parser = StorageParser()
@@ -24,20 +24,22 @@ class TagFormatter(abc.ABC):
         return self._xpath
 
     @abc.abstractmethod
-    def format(self, page_context: context.PageContext, el: etree._Element) -> None:
+    def format(self, page_context: context.Page, el: etree._Element) -> None:
         pass
 
 
-class OutHierarchyPageLinkChecker(TagFormatter):
+class OutHierarchyPageTitleChecker(TagFormatter):
     _xpath = 'ri:page'
 
-    def __init__(self, page_hierarchy_context: context.PageHierarchyContext) -> None:
+    def __init__(self, page_hierarchy_context: context.PageIndex, src_space: str) -> None:
         self._page_hierarchy_context = page_hierarchy_context
+        self._src_space = src_space
 
-    def format(self, page_context: context.PageContext, el: etree._Element) -> None:
+    def format(self, page_context: context.Page, el: etree._Element) -> None:
+        page_space = _parser.get_tag_attr(el, 'ri:space-key')
         page_title = _parser.get_tag_attr(el, 'ri:content-title')
 
-        if not self._page_hierarchy_context.search_by_title(page_title):
+        if not self._page_hierarchy_context.search_by_title(page_space or self._src_space, page_title):
             _logger.warning(
                 'Out hierarchy page link "%s", page: "%s"',
                 page_title,
@@ -45,30 +47,81 @@ class OutHierarchyPageLinkChecker(TagFormatter):
             )
 
 
+class OutHierarchyPageTitleKeeper(TagFormatter):
+    _xpath = 'ri:page'
+
+    def __init__(self, page_hierarchy_context: context.PageIndex, src_space: str) -> None:
+        self._page_hierarchy_context = page_hierarchy_context
+        self._src_space = src_space
+
+        self.pages = set()
+        self._pages_lock = threading.Lock()
+
+    def format(self, page_context: context.Page, el: etree._Element) -> None:
+        page_space = _parser.get_tag_attr(el, 'ri:space-key')
+        page_title = _parser.get_tag_attr(el, 'ri:content-title')
+
+        if not self._page_hierarchy_context.search_by_title(page_space or self._src_space, page_title):
+            with self._pages_lock:
+                self.pages.add((page_space or self._src_space, page_title))
+
+
 class PageTittleFormatter(TagFormatter):
+    _xpath = 'ri:page'
+
+    def __init__(self, fn: _TEXT_FORMATTER, src_space: str, dst_space: str) -> None:
+        self._fn = fn
+        self._src_space = src_space
+        self._dst_space = dst_space
+
+    def format(self, page_context: context.Page, el: etree._Element) -> None:
+        page_space = _parser.get_tag_attr(el, 'ri:space-key')
+
+        if page_space:
+            is_page_space_set = True
+        else:
+            is_page_space_set = False
+            page_space = self._src_space
+
+        page_title = _parser.get_tag_attr(el, 'ri:content-title')
+
+        if is_page_space_set:
+            _parser.set_tag_attr(el, 'ri:space-key', self._dst_space)
+
+        _parser.set_tag_attr(el, 'ri:content-title', self._fn(page_space, page_title))
+
+
+class HierarchyPageTittleFormatter(TagFormatter):
     _xpath = 'ri:page'
 
     def __init__(
         self,
         fn: _TEXT_FORMATTER,
-        space: str,
-        page_hierarchy_context: context.PageHierarchyContext,
+        page_hierarchy_context: context.PageIndex,
+        src_space: str,
+        dst_space: str,
     ) -> None:
         self._fn = fn
-        self._space = space
         self._page_hierarchy_context = page_hierarchy_context
+        self._src_space = src_space
+        self._dst_space = dst_space
 
-    def format(self, page_context: context.PageContext, el: etree._Element) -> None:
+    def format(self, page_context: context.Page, el: etree._Element) -> None:
         page_space = _parser.get_tag_attr(el, 'ri:space-key')
-        page_title = _parser.get_tag_attr(el, 'ri:content-title')
-
-        if not self._page_hierarchy_context.search_by_title(page_title):
-            return
 
         if page_space:
-            _parser.set_tag_attr(el, 'ri:space-key', self._space)
+            is_page_space_set = True
+        else:
+            is_page_space_set = False
+            page_space = self._src_space
 
-        _parser.set_tag_attr(el, 'ri:content-title', self._fn(page_title))
+        page_title = _parser.get_tag_attr(el, 'ri:content-title')
+
+        if self._page_hierarchy_context.search_by_title(page_space, page_title):
+            if is_page_space_set:
+                _parser.set_tag_attr(el, 'ri:space-key', self._dst_space)
+
+            _parser.set_tag_attr(el, 'ri:content-title', self._fn(page_space, page_title))
 
 
 class IncDrawIOFormatter(TagFormatter):
@@ -110,7 +163,7 @@ class IncDrawIOFormatter(TagFormatter):
         self,
         src_cli: CustomConfluence,
         dst_cli: CustomConfluence,
-        page_hierarchy_context: context.PageHierarchyContext,
+        page_hierarchy_context: context.PageIndex,
     ) -> None:
         self._src_cli = src_cli
         self._dst_cli = dst_cli
@@ -128,7 +181,7 @@ class IncDrawIOFormatter(TagFormatter):
     def delayed_pages_count(self) -> int:
         return len(self._delayed_pages)
 
-    def format(self, page_context: context.PageContext, el: etree._Element) -> None:
+    def format(self, page_context: context.Page, el: etree._Element) -> None:
         if not self._is_included(el):
             return
 
@@ -250,14 +303,14 @@ class IncDrawIOFormatter(TagFormatter):
         return include_param.text == '1'
 
 
-def format_page(page_context: context.PageContext, body: str, tag_formatters: list[TagFormatter]) -> str:
-    if not tag_formatters:
-        return body
-
+def format_page(page_context: context.Page, body: str, tag_formatters: tp.Iterable[TagFormatter]) -> str:
     xpath_tag_formatters_map = collections.defaultdict(list)
 
     for tf in tag_formatters:
         xpath_tag_formatters_map[tf.xpath].append(tf)
+
+    if not xpath_tag_formatters_map:
+        return body
 
     root = _parser.parse(body)
 
@@ -276,7 +329,8 @@ def format_page(page_context: context.PageContext, body: str, tag_formatters: li
 def title_formatter(
     replace_text_substr: tuple[str, str] | None = None,
     start_text_with: str | None = None,
-) -> tp.Callable[[str], str]:
+    src_space: str | None = None,
+) -> _TEXT_FORMATTER:
     """Создание фукнции для форматирования текста.
 
     :param replace_text_substr: данные для замены подтстроки строки
@@ -284,10 +338,13 @@ def title_formatter(
     :return: функция форматирования
     """
 
-    def same(s: str) -> str:
-        return s
+    def same(page_space: str, page_title: str) -> str:
+        return page_title
 
     fn = same
+
+    if src_space is not None:
+        fn = _add_space_prefix(fn, src_space)
 
     if start_text_with:
         fn = _start_text_with(fn, start_text_with)
@@ -300,15 +357,26 @@ def title_formatter(
 
 def _replace_text_substr(func: _TEXT_FORMATTER, old: str, new: str) -> _TEXT_FORMATTER:
 
-    def wrapper(s: str) -> str:
-        return func(s.replace(old, new))
+    def wrapper(page_space: str, page_title: str) -> str:
+        return func(page_space, page_title.replace(old, new))
 
     return wrapper
 
 
 def _start_text_with(func: _TEXT_FORMATTER, start_with: str) -> _TEXT_FORMATTER:
 
-    def wrapper(s: str) -> str:
-        return func(start_with + s)
+    def wrapper(page_space: str, page_title: str) -> str:
+        return func(page_space, start_with + page_title)
+
+    return wrapper
+
+
+def _add_space_prefix(func: _TEXT_FORMATTER, src_space: str) -> _TEXT_FORMATTER:
+
+    def wrapper(page_space: str, page_title: str) -> str:
+        if src_space != page_space:
+            page_title = f'{page_space}: {page_title}'
+
+        return func(page_space, page_title)
 
     return wrapper
