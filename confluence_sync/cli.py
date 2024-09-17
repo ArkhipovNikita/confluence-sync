@@ -102,7 +102,7 @@ source_auth_group.add_argument('--source-basic', help='Username and password sep
 source_auth_group.add_argument('--source-token')
 
 parser.add_argument('--source-space', required=True)
-parser.add_argument('--source-title', required=True)
+parser.add_argument('--source-title', required=False)
 
 # Destination
 parser.add_argument('--dest-url', required=True)
@@ -112,7 +112,7 @@ dest_auth_group.add_argument('--dest-basic', help='Username and password separat
 dest_auth_group.add_argument('--dest-token')
 
 parser.add_argument('--dest-space', required=True)
-parser.add_argument('--dest-title', required=True)
+parser.add_argument('--dest-title', required=False)
 
 # Settings
 parser.add_argument('--sync-out-hierarchy', action='store_true', help='Sync out hierarchy pages that are used by target one')

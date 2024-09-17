@@ -41,7 +41,7 @@ class _ConfluenceSynchronizerSession(observer.Observable):
         src_cli: CustomConfluence,
         dst_cli: CustomConfluence,
         src_space: str,
-        src_title: str,
+        src_title: str | None = None,
         dst_space: str,
         dst_title: str | None = None,
         sync_out_hierarchy: bool = False,
@@ -64,8 +64,8 @@ class _ConfluenceSynchronizerSession(observer.Observable):
         self._dst_space = dst_space
 
         # PAGES
-        self._src_page = self._src_cli.get_page_by_title(src_space, src_title, expand='body.storage,ancestors')
-        self._dst_page = self._get_dst_page(dst_space, dst_title)
+        self._src_page = self._get_dst_page(self._src_cli, src_space, src_title, expand='body.storage,ancestors')
+        self._dst_page = self._get_dst_page(self._dst_cli, dst_space, dst_title)
 
         self._sync_out_hierarchy = sync_out_hierarchy
 
@@ -124,12 +124,13 @@ class _ConfluenceSynchronizerSession(observer.Observable):
 
         self._futures.clear()
 
-    def _get_dst_page(self, dst_space: str, dst_title: str | None = None) -> StrDict:
+    @classmethod
+    def _get_dst_page(cls, cli: CustomConfluence, dst_space: str, dst_title: str | None = None, expand: tp.Any = None) -> StrDict:
         if dst_title:
-            return self._dst_cli.get_page_by_title(dst_space, dst_title)
+            return cli.get_page_by_title(dst_space, dst_title, expand=expand)
         else:
-            dst_space_data = self._dst_cli.get_space(dst_space)
-            return self._dst_cli.get_page_by_id(dst_space_data['homepage']['id'])
+            dst_space_data = cli.get_space(dst_space)
+            return cli.get_page_by_id(dst_space_data['homepage']['id'], expand)
 
     def _init_stats(self, total_page_count: int) -> None:
         """Установка начальных значений статистики."""
@@ -476,7 +477,7 @@ class _ConfluenceSynchronizerSession(observer.Observable):
         for src_page_id, body, attachments, comment in self._inc_drawio_formatter.process_delayed_pages():
             page_context = self._page_index.search_by_id(src_page_id)
 
-            new_title = self._title_formatter(page_context.src_title)
+            new_title = self._title_formatter(page_context.src_space, page_context.src_title)
 
             self._dst_cli.update_page(
                 page_id=page_context.dst_id,
@@ -548,7 +549,7 @@ class ConfluenceSynchronizer:
     def sync_page_hierarchy(
         self,
         src_space: str,
-        src_title: str,
+        src_title: str | None,
         dst_space: str,
         dst_title: str | None = None,
         *,
