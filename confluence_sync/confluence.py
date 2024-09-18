@@ -106,3 +106,10 @@ class CustomConfluence(Confluence):
     ) -> list[StrDict]:
         attachments = list(self.traverse_page_attachments(page_id, expand=expand))
         return [attachment for attachment in attachments if attachment['title'] in attachment_names]
+
+    def get_page_by_title_or_homepage(self, space: str, title: str | None = None, expand: tp.Any = None) -> StrDict:
+        if title:
+            return self.get_page_by_title(space, title, expand=expand)
+        else:
+            space_data = self.get_space(space)
+            return self.get_page_by_id(space_data['homepage']['id'], expand)

@@ -40,10 +40,12 @@ class _ConfluenceSynchronizerSession(observer.Observable):
         executor: futures.ThreadPoolExecutor,
         src_cli: CustomConfluence,
         dst_cli: CustomConfluence,
-        src_space: str,
+        src_space: str | None = None,
         src_title: str | None = None,
-        dst_space: str,
+        src_id: str | None = None,
+        dst_space: str | None = None,
         dst_title: str | None = None,
+        dst_id: str | None = None,
         sync_out_hierarchy: bool = False,
         replace_title_substr: tuple[str, str] | None = None,
         start_title_with: str | None = None,
@@ -59,25 +61,32 @@ class _ConfluenceSynchronizerSession(observer.Observable):
         self._src_cli = src_cli
         self._dst_cli = dst_cli
 
-        # SPACES
-        self._src_space = src_space
-        self._dst_space = dst_space
+        # PAGES and SPACES
+        if src_id is None:
+            self._src_space = src_space
+            self._src_page = self._src_cli.get_page_by_title_or_homepage(src_space, src_title, expand='body.storage,ancestors')
+        else:
+            self._src_page = self._src_cli.get_page_by_id(src_id, expand='body.storage,ancestors,space')
+            self._src_space = self._src_page['space']['key']
 
-        # PAGES
-        self._src_page = self._get_dst_page(self._src_cli, src_space, src_title, expand='body.storage,ancestors')
-        self._dst_page = self._get_dst_page(self._dst_cli, dst_space, dst_title)
+        if dst_id is None:
+            self._dst_page = self._dst_cli.get_page_by_title_or_homepage(dst_space, dst_title)
+            self._dst_space = dst_space
+        else:
+            self._dst_page = self._dst_cli.get_page_by_id(dst_id, expand='space')
+            self._dst_space = self._dst_page['space']['key']
 
         self._sync_out_hierarchy = sync_out_hierarchy
 
         # PAGE INDEX
-        descendant_pages = self._src_cli.traverse_descendant_pages(src_space, self._src_page['id'])
+        descendant_pages = self._src_cli.traverse_descendant_pages(self._src_space, self._src_page['id'])
 
         self._page_index = context.PageIndex()
         for page in it.chain((self._src_page,), descendant_pages):
             self._page_index.add_page(
                 context.Page(
                     src_id=page['id'],
-                    src_space=src_space,
+                    src_space=self._src_space,
                     src_title=page['title']
                 )
             )
@@ -86,23 +95,23 @@ class _ConfluenceSynchronizerSession(observer.Observable):
         self._title_formatter = fmt.title_formatter(
             replace_title_substr,
             start_title_with,
-            src_space if sync_out_hierarchy else None,
+            self._src_space if sync_out_hierarchy else None,
         )
 
         if sync_out_hierarchy:
-            self._page_title_formatter = fmt.PageTittleFormatter(self._title_formatter, src_space, dst_space)
-            self._out_hierarchy_title_keeper = fmt.OutHierarchyPageTitleKeeper(self._page_index, src_space)
+            self._page_title_formatter = fmt.PageTittleFormatter(self._title_formatter, self._src_space, self._dst_space)
+            self._out_hierarchy_title_keeper = fmt.OutHierarchyPageTitleKeeper(self._page_index, self._src_space)
             self._out_hierarchy_title_checker = None
         else:
             self._page_title_formatter = fmt.HierarchyPageTittleFormatter(
                 self._title_formatter,
                 self._page_index,
-                src_space,
-                dst_space,
+                self._src_space,
+                self._dst_space,
             )
 
             self._out_hierarchy_title_keeper = None
-            self._out_hierarchy_title_checker = fmt.OutHierarchyPageTitleChecker(self._page_index, src_space)
+            self._out_hierarchy_title_checker = fmt.OutHierarchyPageTitleChecker(self._page_index, self._src_space)
 
         self._inc_drawio_formatter = fmt.IncDrawIOFormatter(self._src_cli, self._dst_cli, self._page_index)
 
@@ -123,14 +132,6 @@ class _ConfluenceSynchronizerSession(observer.Observable):
             ft.result()
 
         self._futures.clear()
-
-    @classmethod
-    def _get_dst_page(cls, cli: CustomConfluence, dst_space: str, dst_title: str | None = None, expand: tp.Any = None) -> StrDict:
-        if dst_title:
-            return cli.get_page_by_title(dst_space, dst_title, expand=expand)
-        else:
-            dst_space_data = cli.get_space(dst_space)
-            return cli.get_page_by_id(dst_space_data['homepage']['id'], expand)
 
     def _init_stats(self, total_page_count: int) -> None:
         """Установка начальных значений статистики."""
@@ -548,10 +549,12 @@ class ConfluenceSynchronizer:
 
     def sync_page_hierarchy(
         self,
-        src_space: str,
+        src_space: str | None,
         src_title: str | None,
-        dst_space: str,
-        dst_title: str | None = None,
+        src_id: str | None,
+        dst_space: str | None,
+        dst_title: str | None,
+        dst_id: str | None,
         *,
         sync_out_hierarchy: bool = False,
         replace_title_substr: tuple[str, str] | None = None,
@@ -561,8 +564,10 @@ class ConfluenceSynchronizer:
 
         :param src_space: спейс страницы источника
         :param src_title: название страницы источника
+        :param src_id: идентификатор страницы источника
         :param dst_space: спейс страницы назначения
         :param dst_title: название страницы назначения
+        :param dst_id: идентификатор страницы назначения
         :param sync_out_hierarchy: необходимо ли синхронизировать используемые страницы вне текущей иерархии
         :param replace_title_substr: данные для замены подстроки заголовка
         :param start_title_with: добавить префикс к заголовку
@@ -576,9 +581,27 @@ class ConfluenceSynchronizer:
             dst_cli=self._dst_cli,
             src_space=src_space,
             src_title=src_title,
+            src_id=src_id,
             dst_space=dst_space,
             dst_title=dst_title,
+            dst_id=dst_id,
             sync_out_hierarchy=sync_out_hierarchy,
             replace_title_substr=replace_title_substr,
             start_title_with=start_title_with,
         )
+
+
+def get_page(
+    cli: CustomConfluence,
+    page_space: str,
+    page_id: str | None = None,
+    page_title: str | None = None,
+    expand: tp.Any = None
+) -> StrDict:
+    if page_id:
+        return cli.get_page_by_id(page_id, expand=expand)
+    if page_title:
+        return cli.get_page_by_title(page_space, page_title, expand=expand)
+    else:
+        dst_space_data = cli.get_space(page_space)
+        return cli.get_page_by_id(dst_space_data['homepage']['id'], expand)
