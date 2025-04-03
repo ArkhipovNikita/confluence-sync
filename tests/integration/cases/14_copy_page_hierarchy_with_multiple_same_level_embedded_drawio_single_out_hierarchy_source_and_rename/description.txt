@@ -1,0 +1,3 @@
+Copy page hierarchy to another confluence instance with embedded drawio diagram referenced to a page from outside the hierarchy and renaming.
+The first embedded diagram must become a source for the copying page hierarchy.
+The second one must be referenced to the new source in current hierarchy.

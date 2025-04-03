@@ -227,6 +227,8 @@ class IncDrawIOFormatter(TagFormatter):
                     self._copy(el, ref_root, ref_diagram_name)
                     self._out_hierarchy_replacements[ref_page_id] = page_context.dst_id
                     attachments[ref_page_id].append(ref_diagram_name)
+                    attachments[ref_page_id].append(f'{ref_diagram_name}.png')
+                    attachments[ref_page_id].append(f'~{ref_diagram_name}.tmp')
 
             yield page_id, _parser.to_storage(root), attachments, self._delayed_comment
 

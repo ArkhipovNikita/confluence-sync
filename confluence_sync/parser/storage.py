@@ -27,12 +27,17 @@ class StorageParser:
         ('HTMLsymbol', _make_entity_uri('xhtml-symbol.ent')),
     )
 
-    def __init__(self):
+    def __init__(self, remove_blank_text: bool = False):
         url = 'http://example.org'
         self._ns = {prefix: parse.urljoin(url, prefix) for prefix in self._ns_prefixes}
         self._root = self._build_root()
         self._doctype = self._build_doctype()
-        self._parser = etree.XMLParser(resolve_entities=False, load_dtd=True, strip_cdata=False)
+        self._parser = etree.XMLParser(
+            resolve_entities=False,
+            load_dtd=True,
+            strip_cdata=False,
+            remove_blank_text=remove_blank_text,
+        )
 
     def parse(self, body: str) -> etree._Element:
         body = self._wrap(body)

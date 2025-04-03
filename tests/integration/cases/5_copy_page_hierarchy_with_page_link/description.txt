@@ -1,0 +1,2 @@
+Copy page hierarchy to another confluence instance with page links leading to pages in the current hierarchy
+and to the outer.

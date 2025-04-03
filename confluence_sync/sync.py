@@ -79,7 +79,7 @@ class _ConfluenceSynchronizerSession(observer.Observable):
         self._sync_out_hierarchy = sync_out_hierarchy
 
         # PAGE INDEX
-        descendant_pages = self._src_cli.traverse_descendant_pages(self._src_space, self._src_page['id'])
+        descendant_pages = self._src_cli.traverse_descendant_pages(self._src_page['id'])
 
         self._page_index = context.PageIndex()
         for page in it.chain((self._src_page,), descendant_pages):
@@ -497,6 +497,8 @@ class _ConfluenceSynchronizerSession(observer.Observable):
                 for ref_page_id, attachment_names
                 in attachments.items()
             )
+
+            attachments = list(attachments)
 
             self._copy_attachments(attachments, page_context.dst_id, new_title)
             self._wait_tasks()
