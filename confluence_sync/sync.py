@@ -185,7 +185,7 @@ class _ConfluenceSynchronizerSession(observer.Observable):
 
             ancestors = page['ancestors']
             # пропуск домашней страницы
-            ancestors = ancestors[1:]
+            ancestors = ancestors[1:] if len(ancestors) > 0 else ancestors
 
             for ancestor in ancestors:
                 ancestor_node = cur_node.find_child_by(key=lambda d: d.title == ancestor['title'])

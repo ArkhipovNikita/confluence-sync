@@ -55,7 +55,7 @@ def setup_confluence(
 
 		page_queue = queue.SimpleQueue()
 		for page_config in space_config.pages:
-			page_queue.put((page_config, None))
+			page_queue.put((page_config, space['homepage']['id']))
 
 		while not page_queue.empty():
 			page_config, parent_id = page_queue.get()
@@ -140,6 +140,7 @@ def assert_confluence(
 			page_config, parent_id = page_queue.get()
 
 			page = client.get_page_by_title(space['key'], page_config.name, expand='body.storage,ancestors')
+			assert page is not None, 'Page does not exist'
 
 			if parent_id is None:
 				assert len(page['ancestors']) == 0, 'Page must not have any ancestors'

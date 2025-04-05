@@ -1,0 +1,2 @@
+cli:
+  args: ['--source-title', 'page_1', '--sync-out-hierarchy', '--start-title-with', 'copy_of_']

@@ -1,0 +1,1 @@
+Copy page that has a link to an out hierarchy top page with sync-out-hierarchy option and page renaming.
