@@ -1,0 +1,40 @@
+services:
+  postgresql-src:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: "confluence"
+      POSTGRES_USER: "confluence"
+      POSTGRES_PASSWORD: "confluence"
+
+  confluence-src:
+    image: atlassian/confluence:9.2.2
+    env_file: .env.confluence
+    environment:
+      ATL_FORCE_CFG_UPDATE: true
+      ATL_JDBC_URL: "jdbc:postgresql://postgresql-src:5432/confluence"
+      ATL_JDBC_USER: "confluence"
+      ATL_JDBC_PASSWORD: "confluence"
+      ATL_DB_TYPE: "postgresql"
+      ATL_PRODUCT_SERVER_ID: "BFZJ-WRKR-422L-FZEU"
+    ports:
+      - "8090:8090"
+
+  postgresql-dst:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: "confluence"
+      POSTGRES_USER: "confluence"
+      POSTGRES_PASSWORD: "confluence"
+
+  confluence-dst:
+    image: atlassian/confluence:9.2.2
+    env_file: .env.confluence
+    environment:
+      ATL_FORCE_CFG_UPDATE: true
+      ATL_JDBC_URL: "jdbc:postgresql://postgresql-dst:5432/confluence"
+      ATL_JDBC_USER: "confluence"
+      ATL_JDBC_PASSWORD: "confluence"
+      ATL_DB_TYPE: "postgresql"
+      ATL_PRODUCT_SERVER_ID: "BFZJ-WRKR-422L-FZEU"
+    ports:
+      - "9090:8090"
