@@ -152,17 +152,12 @@ def assert_confluence(
 					template_context = template.create_confluence_context(client, confluence_config)
 
 				content_template = jinja_env.from_string(page_config.content)
-				actual_content = content_template.render(confluence=template_context)
+				expected_content = content_template.render(confluence=template_context)
 			else:
-				actual_content = page_config.content
+				expected_content = page_config.content
 
-			expected_content = xhtml.minify(actual_content)
-			actual_content = xhtml.minify(page['body']['storage']['value'])
-
-			actual_content = re.sub(r'(ac:macro-id=)"[^"]*"', r'\1""', actual_content)
-			expected_content = re.sub(r'(ac:macro-id=)"[^"]*"', r'\1""', expected_content)
-
-			assert actual_content == expected_content, 'Page content differs from expected'
+			actual_content = page['body']['storage']['value']
+			assert_page_content(actual_content, expected_content)
 
 			if page_config.attachment_paths:
 				attachments = client.get_attachments_from_content(page['id'])
@@ -177,6 +172,21 @@ def assert_confluence(
 
 			for child_page_config in page_config.pages:
 				page_queue.put((child_page_config, page['id']))
+
+
+def assert_page_content(actual: str, expected: str) -> None:
+	actual = clean_page_content(actual)
+	expected = clean_page_content(expected)
+	assert actual == expected, 'Page content differs from expected'
+
+
+def clean_page_content(content: str) -> str:
+	content = xhtml.minify(content)
+	return clean_macro_id(content)
+
+
+def clean_macro_id(content: str) -> str:
+	return re.sub(r'(ac:macro-id=)"[^"]*"', r'\1""', content)
 
 
 def create_confluence_sync_cmd(
