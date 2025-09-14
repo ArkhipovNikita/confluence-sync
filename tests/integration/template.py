@@ -1,5 +1,4 @@
 import dataclasses as dc
-import queue
 
 from atlassian import confluence
 
@@ -33,21 +32,23 @@ def create_confluence_context(client: confluence.Confluence, confluence_config: 
 	for space_config in confluence_config.spaces:
 		space = client.get_space(space_config.key)
 
-		page_queue = queue.SimpleQueue()
-		for page_config in space_config.pages:
-			page_queue.put((page_config, None))
+		page_iterator = case.iterate_space_pages(space_config, space['homepage']['id'])
+
+		try:
+			page_config, parent_id = next(page_iterator)
+		except StopIteration:
+			continue
 
 		pages_by_name = {}
 
-		while not page_queue.empty():
-			page_config, parent_id = page_queue.get()
-
+		while True:
 			page = client.get_page_by_title(space['key'], page_config.name)
-
 			pages_by_name[page['title']] = Page(id=page['id'], name=page['title'])
 
-			for child_page_config in page_config.pages:
-				page_queue.put((child_page_config, page['id']))
+			try:
+				page_config, parent_id = page_iterator.send(page['id'])
+			except StopIteration:
+				break
 
 		space = Space(name=space['name'], pages=pages_by_name)
 		spaces_by_name[space.name] = space

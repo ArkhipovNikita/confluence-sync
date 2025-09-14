@@ -26,8 +26,17 @@ def setup_and_clean_test_case(
 	dst_confluence_client: confluence.Confluence,
 	jinja_env: jinja2.Environment,
 ) -> tp.Generator[None, None, None]:
-	setup_confluence(src_confluence_client, test_case.src_confluence, jinja_env)
-	setup_confluence(dst_confluence_client, test_case.dst_orig_confluence, jinja_env)
+	try:
+		setup_confluence(src_confluence_client, test_case.src_confluence, jinja_env)
+	except Exception:
+		clean_confluence(src_confluence_client, test_case.src_confluence)
+		raise
+
+	try:
+		setup_confluence(dst_confluence_client, test_case.dst_orig_confluence, jinja_env)
+	except Exception:
+		clean_confluence(dst_confluence_client, test_case.dst_orig_confluence)
+		raise
 
 	with contextlib.suppress(Exception):
 		yield
@@ -44,22 +53,20 @@ def setup_confluence(
 ) -> None:
 	client = confluencex.ConfluenceCacheClient.from_client(client)
 
-	spaces = []
-
 	template_pages = []
 
 	for space_config in confluence_config.spaces:
 		client.create_space(space_config.key, space_config.name)
 		space = client.get_space(space_config.key)
-		spaces.append(space)
 
-		page_queue = queue.SimpleQueue()
-		for page_config in space_config.pages:
-			page_queue.put((page_config, space['homepage']['id']))
+		page_iterator = case.iterate_space_pages(space_config, space['homepage']['id'])
 
-		while not page_queue.empty():
-			page_config, parent_id = page_queue.get()
+		try:
+			page_config, parent_id = next(page_iterator)
+		except StopIteration:
+			continue
 
+		while True:
 			page = client.create_page(
 				space=space['key'],
 				title=page_config.name,
@@ -77,8 +84,10 @@ def setup_confluence(
 					page_id=page['id']
 				)
 
-			for child_page_config in page_config.pages:
-				page_queue.put((child_page_config, page['id']))
+			try:
+				page_config, parent_id = page_iterator.send(page['id'])
+			except StopIteration:
+				break
 
 	template_context = template.create_confluence_context(client, confluence_config)
 
@@ -130,15 +139,15 @@ def assert_confluence(
 
 	for space_config in confluence_config.spaces:
 		space = client.get_space(space_config.key, expand='homepage')
-		homepage = space['homepage']
 
-		page_queue = queue.SimpleQueue()
-		for page_config in space_config.pages:
-			page_queue.put((page_config, homepage['id']))
+		page_iterator = case.iterate_space_pages(space_config, space['homepage']['id'])
 
-		while not page_queue.empty():
-			page_config, parent_id = page_queue.get()
+		try:
+			page_config, parent_id = next(page_iterator)
+		except StopIteration:
+			continue
 
+		while True:
 			page = client.get_page_by_title(space['key'], page_config.name, expand='body.storage,ancestors')
 			assert page is not None, 'Page does not exist'
 
@@ -170,8 +179,10 @@ def assert_confluence(
 
 				assert actual_attachment_names == expected_attachment_names, 'Page has different attachments'
 
-			for child_page_config in page_config.pages:
-				page_queue.put((child_page_config, page['id']))
+			try:
+				page_config, parent_id = page_iterator.send(page['id'])
+			except StopIteration:
+				break
 
 
 def assert_page_content(actual: str, expected: str) -> None:

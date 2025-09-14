@@ -1,6 +1,8 @@
 import dataclasses as dc
 import itertools as it
 import pathlib
+import queue
+import typing as tp
 
 import yaml
 
@@ -214,3 +216,17 @@ def get_test_cases() -> list[TestCase]:
 		test_cases.append(test_case)
 
 	return test_cases
+
+
+def iterate_space_pages(space_config: SpaceConfig, homepage_id: str) -> tp.Generator[tuple[PageConfig, str], str, None]:
+	page_queue = queue.SimpleQueue()
+
+	for page_config in space_config.pages:
+		page_queue.put((page_config, homepage_id))
+
+	while not page_queue.empty():
+		page_config, parent_page_id = page_queue.get()
+		page_id = yield page_config, parent_page_id
+
+		for child_page_config in page_config.pages:
+			page_queue.put((child_page_config, page_id))
