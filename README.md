@@ -1,108 +1,69 @@
 # ConfluenceSync
 
-CLI-утилита для копирования страниц из одного конфлюенса в другой.
+A command-line utility for synchronizing page hierarchies across Confluence Data Center instances.
 
-## Функционал
+## Features
 
-- Копируется вся иерархия страницы;
-- Копируются все вложения страницы, если вложение уже существует в конфлюенсе назначения, то копирование происходит,
-  только если оно было изменено;
-- Копируются drawio диаграммы, даже если исходник находится вне текущей иерархии;
-- Если drawio диаграмма ссылается на другую, то ссылка будет изменена на новую страницу;
-- Версии страницы не копируются – при каждой синхронизации создается одна версия, сколько бы версий не было в исходной
-  странице, например, было 3 версии, стала 1;
-- При копировании новая версия страницы не создается, если содержимое не было изменено;
-- При копировании проверяются ссылки на другие страницы – если ссылка ведет страницу, которая находится вне иерархии
-  текущей, то отображается сообщение об этом;
-- При копировании можно переименовывать страницы – указать какую часть заголовка на что заменить или добавить префикс к
-  заголовку.
-- Копирование используемых страниц, которые расположены вне иерархии указанной.
+### Page hierarchy
 
-## Параметры
+Copy entire page hierarchies.
 
-| Название                 | Описание                                                   | Пример                         |
-|:-------------------------|------------------------------------------------------------|--------------------------------|
-| `--source-url`           | URL исходного конфлюенса                                   | `"https://confluence.cyrm.ru"` |
-| `--source-token`         | PAT-токен авторизации исходного конфлюенса                 | `""`                           |
-| `--source-basic`         | Логин / пароль исходного конфлюенса                        | `"username:password"`          |
-| `--source-space`         | Название исходного пространства                            | `"MP"`                         |
-| `--source-title`         | Название исходной страницы в пространстве                  | `""`                           |
-| `--source-id`            | Идентификатор исходной страницы                            | `"12345"`                      |
-| `--dest-url`             | URL конфлюенса назначения                                  | `"https://confluence.zxz.su"`  |
-| `--dest-token`           | PAT-токен авторизации конфлюенса назначения                | `""`                           |
-| `--dest-basic`           | Логин / пароль конфлюенса назначения                       | `"username:password"`          |
-| `--dest-space`           | Название пространства назначения                           | `"UVP"`                        |
-| `--dest-title`           | Название страницы назначения                               | `""`                           |
-| `--dest-id`              | Идентификатор страницы назначения                           | `"12345"`                      |
-| `--replace-title-substr` | Замена подстроки заголовка страницы на другую              | `"[int_ЕВП]" "[test_ЕВП]"`     |
-| `--start-title-with`     | Добавление префикса к заголовку страницы                   | `"PY "`                        |
-| `--sync-out-hierarchy`   | Необходимо ли копировать используемые страницы вне иерархии | `--sync-out-hierarchy`         |
+While copying, you can rename pages by adding a prefix or replacing a substring, similar to how Confluence's built-in Move Page utility
+works.
+If a page hasn't been modified since the last synchronization, it will not be copied again.
 
-## Установка и использование
+Source page versions are not copied. The destination page will start version numbering from the first copied version.
 
-Минимальная версия python 3.11.
-Пакет лежит `nexus.cyrm.tech` в репозитории `pypi-cyrm-proxy`, установить можно следующей командой:
+### Attachments
+
+All attachments are copied along with the page content.
+
+If an attachment hasn't been modified since the last synchronization, it will not be copied again.
+
+### Draw.io diagrams
+
+Supports copying draw.io diagrams, including embedded diagrams created by the corresponding plugin.
+
+If an included draw.io diagram exists in the current page hierarchy being copied, the link will be updated to point to the new page.
+
+If the included diagram is outside the current hierarchy, one of the diagrams linked to it will be used as the new source,
+and the remaining links will point to this new source page within the hierarchy.
+
+### Pages outside the hierarchy
+
+Sometimes pages linked from the hierarchy are located outside the current page hierarchy.
+By default, such links are logged.
+
+If the flag `--sync-out-hierarchy` is used, these pages are copied to the root of the destination space.
+Page name modifiers (prefixes or substring replacements) are applied to these pages as well.
+If a linked page belongs to a different space than the source, the name will be prefixed with <LinkedPageSpaceName>: .
+
+## Installation
 
 ```bash
-pip install -i https://nexus.cyrm.tech/repository/pypi-cyrm-proxy/simple confluence-sync
+pip install confluence-sync
 ```
 
-Использовать утилиту можно следующей командой:
+## Usage
 
 ```bash
-python -m confluence_sync
+confluence-sync -h
 ```
 
-Хелп:
-
-```bash
-python -m confluence_sync -h
-```
-
-## Публикация пакета
-
-1. Изменить версию в [pyproject.toml](pyproject.toml) (следовать [семантическому](https://semver.org/spec/v2.0.0.html) версионированию)
-
-2. Сбилдить пакет
-
-    ```bash
-    poetry build
-     ``` 
-
-3. Добавить репозиторий `pypi-cyrm` в poetry
-
-    ```bash
-    poetry config repositories.cyrm https://nexus.cyrm.tech/repository/pypi-cyrm/
-    ```
-
-4. Опубликовать пакет
-
-    ```bash
-    poetry publish -r cyrm
-    ```
-
-## Бэклог
-
-- [ ] Добавить обработку ошибок клиента `atlassian.Confluence` и информирование об этом в cli
-- [ ] Синхронизировать только обновленные с предыдущего раза или новые страницы
-- [ ] Добавить grace shutdown
-- [ ] Проверить запуск синхронизации страницы несколько раз с одним экземпляром класса
-- [ ] Добавить CI/CD для публикации пакета по тегу
-- [ ] Выделить в отдельную сущность работу с объектами страницы, например,` get_inc_drawio_macros`, `get_name_param`. Пример поиска
-  нужных [элементов](https://lxml.de/element_classes.html#default-class-lookup).
-- [ ] Добавить xpath builder
-- [ ] Убрать проксирование методов `etree._Element` только для проставления namespace, попробовать сделать так, чтобы элементы сами знали о
-  них.
-- [ ] При запросе определенных вложений страницы не считывать все.
-- [ ] Тег `ri:page` может содержаться в макросах, разметку которых невозможно прочитать, поэтому необходимо добавить ограничение на (не)
-  допустимые макросы.
-- [ ] Если страница с такой же drawio диаграммой уже существует, то необходимо ссылаться на нее, а не создавать новую.
-- [ ] Добавить страницу, куда будут складываться все зависимости.
-- [ ] Добавить автотесты для проверки функционала drawio
-  диаграмм ([пример](https://confluence.cyrm.ru/display/~n.arkhipov@cyrm.ru/IncDrawio) страниц):
-    - Копирование внешней диаграммы
-    - Копирование внешней диаграммы и ссылка на нее в другой странице на том же уровне
-    - Копирование внешней диаграммы и ссылка на нее в другой странице ниже уровнем
-    - Изменение ссылки в диаграмме, что ссылается на диаграмму страницей выше
-    - Изменение ссылки в диаграмме, что ссылается на диаграмму страницей ниже
-    - Изменение ссылки в диаграмме, что ссылается на диаграмму на странице того же уровня
+| Название                 | Описание                                                                | Пример                     |
+|:-------------------------|-------------------------------------------------------------------------|----------------------------|
+| `--source-url`           | Source confluence URL                                                   | `"https://localhost:8090"` |
+| `--source-token`         | Source confluence PAT-token                                             | `"12345"`                  |
+| `--source-basic`         | Source confluence login and password                                    | `"username:password"`      |
+| `--source-space`         | Source confluence space                                                 | `"MYSPACE"`                |
+| `--source-title`         | Source confluence page title                                            | `"MYPAGE"`                 |
+| `--source-id`            | Source confluence page id. Can be used instead if space and title.      | `"12345"`                  |
+| `--dest-url`             | Destination confluence URL                                              | `"https://localhost:9090"` |
+| `--dest-token`           | Destination confluence PAT-token                                        | `"12345"`                  |
+| `--dest-basic`           | Destination confluence login and password                               | `"username:password"`      |
+| `--dest-space`           | Destination confluence space                                            | `"MYSPACE"`                |
+| `--dest-title`           | Destination confluence page title                                       | `"MYPAGE"`                 |
+| `--dest-id`              | Destination confluence page id. Can be used instead if space and title. | `"12345"`                  |
+| `--replace-title-substr` | Replace a substring in the page title                                   | `"[SRC]" "[DST]"`          |
+| `--start-title-with`     | Add a prefix to the page title                                          | `"PY "`                    |
+| `--sync-out-hierarchy`   | Copy pages outside the current page hierarchy                           | `--sync-out-hierarchy`     |
