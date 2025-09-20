@@ -1,17 +1,38 @@
-[tool.poetry]
+[project]
 name = "confluence-sync"
-version = "0.3.2"
-description = ""
-authors = ["Nikita Arkhipov <n.arkhipov@cyrm.ru>"]
+version = "1.0.0"
+description = "A utility for synchronizing page hierarchies across Confluence Data Center instances."
+license = "MIT"
+license-files = ["LICENSE"]
 readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Arkhipov Nikita", email = "arkhipov.nr@gmail.com" },
+]
+keywords = ["confluence"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "atlassian-python-api (>=3.41.8,<4.0.0)",
+    "tqdm (>=4.66.1,<5.0.0)",
+    "colorlog (>=6.8.0,<7.0.0)",
+    "lxml (>=5.1.0,<6.0.0)"
+]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-atlassian-python-api = "^3.41.8"
-tqdm = "^4.66.1"
-colorlog = "^6.8.0"
-lxml = "^5.1.0"
+[project.urls]
+repository = "https://github.com/ArkhipovNikita/confluence-sync"
 
+[project.scripts]
+confluence-sync = "confluence_sync.__main__:main"
+
+[tool.poetry]
+package-mode = true
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.3.5"
@@ -20,5 +41,5 @@ pyyaml = "^6.0.2"
 jinja2 = "^3.1.6"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
