@@ -1,6 +1,6 @@
 [project]
 name = "confluence-syncer"
-version = "1.0.0"
+version = "1.0.1"
 description = "A utility for synchronizing page hierarchies across Confluence Data Center instances."
 license = "MIT"
 license-files = ["LICENSE"]

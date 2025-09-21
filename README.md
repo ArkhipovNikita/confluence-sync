@@ -41,13 +41,13 @@ If a linked page belongs to a different space than the source, the name will be 
 ## Installation
 
 ```bash
-pip install confluence-sync
+pip install confluence-syncer
 ```
 
 ## Usage
 
 ```bash
-confluence-sync -h
+confluence-syncer -h
 ```
 
 | Название                 | Описание                                                                | Пример                     |
