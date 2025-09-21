@@ -194,6 +194,6 @@ dest_space_action = parser.add_argument('--dest-space')
 dest_title_action = parser.add_argument('--dest-title')
 
 # Settings
-parser.add_argument('--sync-out-hierarchy', action='store_true', help='Sync out hierarchy pages that are used by target one')
-parser.add_argument('--replace-title-substr', nargs=2, help='Replace a page title substring with a new one')
-parser.add_argument('--start-title-with', help='Add a prefix to a page title')
+parser.add_argument('--sync-out-hierarchy', action='store_true', help='Copy pages outside the target hierarchy')
+parser.add_argument('--replace-title-substr', nargs=2, help='Change part of page titles to a new value')
+parser.add_argument('--start-title-with', help='Add prefix to page titles')
