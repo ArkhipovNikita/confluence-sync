@@ -1,0 +1,2 @@
+Copy page that has a link to an out hierarchy nth-depth page with preexisting ancestor in the destination
+with sync-out-hierarchy option.

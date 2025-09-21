@@ -1,0 +1,1 @@
+Copy single page to another confluence instance.

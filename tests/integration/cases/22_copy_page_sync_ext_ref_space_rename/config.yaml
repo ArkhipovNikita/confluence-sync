@@ -1,0 +1,2 @@
+cli:
+  args: ['--source-space', 'sp1', '--sync-out-hierarchy', '--start-title-with', 'copy_of_']

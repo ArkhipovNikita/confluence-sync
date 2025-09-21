@@ -1,0 +1,2 @@
+Copy page that has a link to an out hierarchy page that has embedded drawio diagram.
+Linked out hierarchy paged must become source for the drawio diagram.
