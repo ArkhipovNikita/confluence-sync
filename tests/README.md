@@ -5,24 +5,7 @@ installation option available.
 
 ---
 
-## 1. Obtain a Confluence license
-
-- Get a **Confluence Data Center trial license (30 days)** from  
-  [https://www.atlassian.com/purchase/my/licenses/](https://www.atlassian.com/purchase/my/licenses/).
-- A `ServerID` is normally available only after starting a Confluence instance.  
-  However, you can provide it in advance via an environment variable.
-  In `docker-compose.yaml`, use the example `ATL_PRODUCT_SERVER_ID` value from any `confluence-*` service.
-
----
-
-## 2. Configure environment variables
-
-- Copy `.env.confluence.example` to `.env.confluence`.
-- Add the license key to the corresponding variable inside the file.
-
----
-
-## 3. Start Confluence instances
+## 1. Start Confluence instances
 
 Run:
 
@@ -37,6 +20,8 @@ Then open:
 
 Follow the setup wizard for each instance:
 
+- Get a **Confluence Data Center trial license (30 days)**
+  from [https://www.atlassian.com/purchase/my/licenses/](https://www.atlassian.com/purchase/my/licenses/).
 - Select `non-clustered` deployment.
 - Choose `Empty Site`.
 - Select `Manage users` and create a user account. This account will be used to run the `confluence-sync` tests.
@@ -44,7 +29,7 @@ Follow the setup wizard for each instance:
 
 ---
 
-## 4. Install the Draw.io plugin
+## 2. Install the Draw.io plugin
 
 Some tests require the `draw.io` plugin, so it must be installed in both Confluence instances.
 
@@ -56,7 +41,7 @@ Some tests require the `draw.io` plugin, so it must be installed in both Conflue
 
 ---
 
-## 5. Run the integration tests
+## 3. Run the integration tests
 
 - Copy `.env.test.example` to `.env.test`.
 - Fill in the required variables with the correct values.
