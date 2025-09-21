@@ -13,7 +13,7 @@ class CustomConfluence(Confluence):
 		page_id: str,
 		expand: str | None = None,
 	) -> tp.Generator[StrDict, None, None]:
-		"""Получение всех дочерних страниц текущей рекурсивно."""
+		"""Recursively get all descendant pages of the current page."""
 		parent_page_id_queue = queue.SimpleQueue()
 		parent_page_id_queue.put(page_id)
 
@@ -34,10 +34,9 @@ class CustomConfluence(Confluence):
 		filename: str | None = None,
 		media_type: str | None = None,
 	) -> tp.Generator[StrDict, None, None] | list[StrDict] | StrDict:
-		"""Получение вложений страницы.
+		"""Get all attachments of the page.
 
-		Параметры и URL скопированы из метода `get_attachments_from_content`, добавлено получение всех вложений
-		(авто пролистывание страниц).
+		Uses the same arguments as get_attachments_from_content, but also handles auto-paging and gets every attachment.
 		"""
 		params = {}
 
@@ -73,7 +72,6 @@ class CustomConfluence(Confluence):
 
 			raise
 
-	# TODO: запрашивать не все вложения сразу, а только если в прошлых запросах не нашлось нужного
 	def get_attachment_by_names(
 		self,
 		page_id: str,
